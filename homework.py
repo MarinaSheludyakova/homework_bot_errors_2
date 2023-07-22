@@ -211,7 +211,7 @@ def parse_status(homework):
         else:
             verdict = HOMEWORK_VERDICTS[status]
             message = (f'Изменился статус проверки работы "{homework_name}". '
-                        f'{verdict}')
+                       f'{verdict}')
             if type(message) != str:
                 message = ('Ошибка: тип возвращаемого объекта "message" '
                            'не равен строке.')
