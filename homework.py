@@ -51,21 +51,24 @@ HOMEWORK_VERDICTS = {
 }
 
 
-error_state = ''
-
-
-def send_error_state(error_message):
+def send_error_state(bot, now_error, new_error):
     """
     Отправляет состояние домашней работы в Telegram чат.
 
     Перезаписывает предыдущее значение состояния.
     Отправляет новое состояние, если оно отличается от предыдущего.
     """
-    global error_state
-    if error_message != error_state:
-        bot.send_message(TELEGRAM_CHAT_ID, error_message)
-        error_state = error_message
-        logging.debug(f'Бот отправил сообщение: {error_message}.')
+    if new_error != now_error:
+        now_error = new_error
+        try:
+            bot.send_message(TELEGRAM_CHAT_ID, new_error)
+            logging.debug(f'Бот отправил сообщение: {new_error}')
+            return now_error
+        except Exception:
+            logging.error('Ошибка отправки сообщения Ботом.')
+            raise Exception
+    else:
+        pass
 
 
 def check_tokens():
@@ -81,13 +84,12 @@ def check_tokens():
         TELEGRAM_TOKEN,
         TELEGRAM_CHAT_ID
     }
-    for token in tokens:
-        if token is not None and token != '':
-            return token
-        else:
-            message = ('Отсутствует обязательная переменная окружения. '
-                       'Программа принудительно остановлена.')
-            logg_error_or_critical(logging.critical, message, SystemExit)
+    if all(token is not None and token != '' for token in tokens):
+        return True
+    else:
+        message = ('Отсутствует обязательная переменная окружения. '
+                   'Программа принудительно остановлена.')
+        logg_error_or_critical(logging.critical, message, SystemExit)
 
 
 def send_message(bot, message):
@@ -117,7 +119,6 @@ def logg_error_or_critical(level, message, error):
         logging.error(message)
     if level == logging.critical:
         logging.critical(message)
-    send_error_state(message)
     raise error
 
 
@@ -199,39 +200,35 @@ def parse_status(homework):
     подготовленную для отправки в Telegram строку, содержащую один
     из вердиктов словаря HOMEWORK_VERDICTS.
     """
-    homeworks = homework.get('homeworks')
     try:
-        if homeworks == []:
-            raise TypeError
-        homework_the_first = homeworks[0]
-        homework_name = homework_the_first.get('homework_name')
-        status = homework_the_first.get('status')
-        if status is None or status not in HOMEWORK_VERDICTS or status == '':
-            raise ValueError
-        else:
-            verdict = HOMEWORK_VERDICTS[status]
-            message = (f'Изменился статус проверки работы "{homework_name}". '
-                       f'{verdict}')
-            if type(message) != str:
-                message = ('Ошибка: тип возвращаемого объекта "message" '
-                           'не равен строке.')
-                logg_error_or_critical(logging.error, message, TypeError)
-            if type(message) == str:
-                return message
+        homework = homework.get('homeworks')[0]
     except TypeError:
+        message = ('Не найдено ни одной сданной домашней работы.')
+        logging.info(message)
         raise TypeError
+    try:
+        homework_name = homework.get('homeworks')[0].get('homework_name')
+    except ValueError:
+        message = ('Ошибка: в ответе API домашки нет ключа "homework_name".')
+        logg_error_or_critical(logging.error, message, ValueError)
+    try:
+        status = homework.get('homeworks')[0].get('status')
     except ValueError:
         message = ('Ошибка: получен недокументированный статус '
                    'домашней работы "{status}".')
         logg_error_or_critical(logging.error, message, ValueError)
+    else:
+        message = (f'Изменился статус проверки работы "{homework_name}".'
+                   f'{HOMEWORK_VERDICTS[status]}')
+        return message
 
 
 def main():
     """Основная логика работы бота."""
-    global bot
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
     check_tokens()
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time()) - RETRY_PERIOD
+    error_state = ''
     while True:
         try:
             homework = get_api_answer(timestamp)
@@ -242,16 +239,17 @@ def main():
             message = (f'Не найдено ни одной сданной домашней работы '
                        f'за период проверки: {info}')
             logging.info(message)
-        except TypeError:
-            pass
+        except TypeError as error:
+            send_error_state(bot, error_state, error)
+            return error
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-#            logging.error(message)
-#            send_error_state(bot, message)
+            send_error_state(bot, error_state, error)
             return error
-        logging.info(f'Выполнение запроса окончено, следующий повтор '
-                     f'через {RETRY_PERIOD} секунд.')
-        time.sleep(RETRY_PERIOD)
+        finally:
+            logging.info(f'Выполнение запроса окончено, следующий повтор '
+                         f'через {RETRY_PERIOD} секунд.')
+            time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
