@@ -51,18 +51,23 @@ HOMEWORK_VERDICTS = {
 }
 
 
-def send_error_state(bot, now_error, new_error):
+def send_error_state(bot, now_error, new_error, message):
     """
     Отправляет состояние домашней работы в Telegram чат.
 
     Перезаписывает предыдущее значение состояния.
     Отправляет новое состояние, если оно отличается от предыдущего.
     """
+    print(now_error)
+    print(new_error)
     if new_error != now_error:
         now_error = new_error
+        print(now_error)
+        print(new_error)
         try:
-            bot.send_message(TELEGRAM_CHAT_ID, new_error)
-            logging.debug(f'Бот отправил сообщение: {new_error}')
+            print(new_error, now_error)
+            bot.send_message(TELEGRAM_CHAT_ID, message)
+            logging.debug(f'Бот отправил сообщение: {message}')
             return now_error
         except Exception:
             logging.error('Ошибка отправки сообщения Ботом.')
@@ -200,23 +205,23 @@ def parse_status(homework):
     подготовленную для отправки в Telegram строку, содержащую один
     из вердиктов словаря HOMEWORK_VERDICTS.
     """
-    try:
-        homework = homework.get('homeworks')[0]
-    except TypeError:
+    if (homework.get('homeworks') == ''
+            or homework.get('homeworks') is None
+            or len(homework.get('homeworks')) == 0):
         message = ('Не найдено ни одной сданной домашней работы.')
         logging.info(message)
-        raise TypeError
+        raise TypeError(message)
     try:
         homework_name = homework.get('homeworks')[0].get('homework_name')
     except ValueError:
         message = ('Ошибка: в ответе API домашки нет ключа "homework_name".')
-        logg_error_or_critical(logging.error, message, ValueError)
+        logg_error_or_critical(logging.error, message, ValueError(message))
     try:
         status = homework.get('homeworks')[0].get('status')
     except ValueError:
         message = ('Ошибка: получен недокументированный статус '
                    'домашней работы "{status}".')
-        logg_error_or_critical(logging.error, message, ValueError)
+        logg_error_or_critical(logging.error, message, ValueError(message))
     else:
         message = (f'Изменился статус проверки работы "{homework_name}".'
                    f'{HOMEWORK_VERDICTS[status]}')
@@ -234,18 +239,16 @@ def main():
             homework = get_api_answer(timestamp)
             check_response(homework)
             message = parse_status(homework)
-            send_message(bot, message)
+            print(message)
         except IndexError as info:
             message = (f'Не найдено ни одной сданной домашней работы '
                        f'за период проверки: {info}')
             logging.info(message)
-        except TypeError as error:
-            send_error_state(bot, error_state, error)
-            return error
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            send_error_state(bot, error_state, error)
-            return error
+            send_error_state(bot, error_state, error, message)
+        else:
+            send_message(bot, message)
         finally:
             logging.info(f'Выполнение запроса окончено, следующий повтор '
                          f'через {RETRY_PERIOD} секунд.')
